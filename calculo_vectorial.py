@@ -118,3 +118,63 @@ def gradiente_analitico(x: float, y: float, beta: float = 1.0) -> np.ndarray:
         _resultado((0.6 + 0.4*beta)*x + (0.1 + 0.1*beta)*y - 20),
         _resultado((0.1 + 0.1*beta)*x + (1.0 + 0.6*beta)*y - 32),
     ], dtype=float)
+
+
+def _vector_bidimensional(vector: object, nombre: str) -> np.ndarray:
+    """Copia validada de dos componentes reales finitas."""
+    try:
+        componentes = np.asarray(vector, dtype=object)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{nombre} debe tener dos componentes") from exc
+    if componentes.shape != (2,):
+        raise ValueError(f"{nombre} debe tener dos componentes")
+    return np.array([
+        _real_finito(componentes[0], f"{nombre}[0]"),
+        _real_finito(componentes[1], f"{nombre}[1]"),
+    ], dtype=float)
+
+
+def _norma(vector: np.ndarray) -> float:
+    # hypot evita el desbordamiento intermedio al sumar cuadrados.
+    with np.errstate(over="ignore"):
+        norma = np.hypot(vector[0], vector[1])
+    return _resultado(norma)
+
+
+def normalizar_vector(vector) -> np.ndarray:
+    """Devuelve una copia unitaria de un vector bidimensional no nulo."""
+    componentes = _vector_bidimensional(vector, "vector")
+    norma = _norma(componentes)
+    if norma == 0:
+        raise ValueError("vector no debe ser nulo")
+    return componentes / norma
+
+
+def derivada_direccional(f, punto, vector_v, *, h: float = 0.001) -> float:
+    """Calcula gradiente_numerico(f, punto, h) · dirección unitaria."""
+    if not callable(f):
+        raise TypeError("f debe ser invocable")
+    coordenadas = _vector_bidimensional(punto, "punto")
+    x, y = _coordenadas(*coordenadas)
+    direccion = normalizar_vector(vector_v)
+    gradiente = gradiente_numerico(f, x, y, h)
+    return _resultado(np.dot(gradiente, direccion))
+
+
+def verificar_acotacion(gradiente, direccion, *, tolerancia: float = 1e-12) -> bool:
+    """Comprueba -||gradiente|| <= gradiente · u <= ||gradiente||."""
+    g = _vector_bidimensional(gradiente, "gradiente")
+    u = normalizar_vector(direccion)
+    tolerancia = _real_finito(tolerancia, "tolerancia")
+    if tolerancia < 0:
+        raise ValueError("tolerancia debe ser no negativa")
+    norma = _norma(g)
+    derivada = _resultado(np.dot(g, u))
+    margen = tolerancia * max(1.0, norma)
+    return -norma - margen <= derivada <= norma + margen
+
+
+def direccion_tangente(gradiente) -> np.ndarray:
+    """Dirección unitaria perpendicular a un gradiente no nulo."""
+    g = _vector_bidimensional(gradiente, "gradiente")
+    return normalizar_vector((-g[1], g[0]))
