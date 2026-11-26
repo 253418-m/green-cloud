@@ -8,6 +8,7 @@ import numpy as np
 from calculo_vectorial import (
     costo_objetivo,
     costo_operativo,
+    descenso_gradiente,
     derivada_parcial,
     derivada_direccional,
     direccion_tangente,
@@ -283,3 +284,174 @@ class TestGeometriaVectorial(unittest.TestCase):
             self.assertAlmostEqual(np.linalg.norm(u), 1.0, delta=1e-14)
             self.assertLessEqual(abs(derivada), norma_g + 1e-10)
             self.assertTrue(verificar_acotacion(g, vector))
+
+
+class TestDescensoGradiente(unittest.TestCase):
+    def test_parametros_invalidos(self):
+        for funcion, inicio, alpha, h, max_iter, tolerancia in (
+            (None, (80, 70), 0.2, 0.001, 100, 1e-6),
+            (costo_objetivo, (101, 70), 0.2, 0.001, 100, 1e-6),
+            (costo_objetivo, (80,), 0.2, 0.001, 100, 1e-6),
+            (costo_objetivo, (True, 70), 0.2, 0.001, 100, 1e-6),
+            (costo_objetivo, (80, 70), 0, 0.001, 100, 1e-6),
+            (costo_objetivo, (80, 70), -0.2, 0.001, 100, 1e-6),
+            (costo_objetivo, (80, 70), float("inf"), 0.001, 100, 1e-6),
+            (costo_objetivo, (80, 70), True, 0.001, 100, 1e-6),
+            (costo_objetivo, (80, 70), 0.2, 0, 100, 1e-6),
+            (costo_objetivo, (80, 70), 0.2, float("nan"), 100, 1e-6),
+            (costo_objetivo, (80, 70), 0.2, 0.001, 100, 0),
+            (costo_objetivo, (80, 70), 0.2, 0.001, 100, float("inf")),
+            (costo_objetivo, (80, 70), 0.2, 0.001, 0, 1e-6),
+            (costo_objetivo, (80, 70), 0.2, 0.001, 1.5, 1e-6),
+            (costo_objetivo, (80, 70), 0.2, 0.001, True, 1e-6),
+        ):
+            with self.subTest(inicio=inicio, alpha=alpha, h=h,
+                              max_iter=max_iter, tolerancia=tolerancia):
+                with self.assertRaises((TypeError, ValueError)):
+                    descenso_gradiente(funcion, inicio, alpha, h, max_iter, tolerancia)
+
+    def test_iteracion_cero_y_primera_actualizacion(self):
+        inicio = np.array([80.0, 70.0])
+        copia = inicio.copy()
+        for alpha, esperado in ((0.2, (65.2, 50.8)), (0.5, (43, 22))):
+            with self.subTest(alpha=alpha):
+                historial = descenso_gradiente(costo_objetivo, inicio, alpha,
+                                               0.001, 1, 1e-6)
+                self.assertEqual(len(historial), 2)
+                self.assertEqual(historial[0]["iteracion"], 0)
+                self.assertEqual(historial[0]["costo"], 5400.0)
+                self.assertAlmostEqual(historial[0]["norma_gradiente"],
+                                       np.hypot(74, 96), delta=1e-6)
+                np.testing.assert_allclose(
+                    [historial[1]["x"], historial[1]["y"]], esperado,
+                    atol=1e-8, rtol=0,
+                )
+                self.assertEqual(historial[-1]["motivo_terminacion"],
+                                 "max_iteraciones")
+                self.assertFalse(historial[-1]["convergio"])
+        np.testing.assert_array_equal(inicio, copia)
+
+    def test_historial_coherente_y_pasos_sucesivos(self):
+        alpha = 0.2
+        historial = descenso_gradiente(costo_objetivo, (80, 70), alpha,
+                                       0.001, 1000, 1e-6)
+        self.assertLessEqual(len(historial), 1001)
+        for k, registro in enumerate(historial):
+            self.assertEqual(registro["iteracion"], k)
+            self.assertTrue(0 <= registro["x"] <= 100)
+            self.assertTrue(0 <= registro["y"] <= 100)
+            self.assertAlmostEqual(registro["costo"],
+                                   costo_objetivo(registro["x"], registro["y"]),
+                                   delta=1e-9)
+            gradiente = gradiente_numerico(costo_objetivo, registro["x"],
+                                          registro["y"], 0.001)
+            self.assertAlmostEqual(registro["norma_gradiente"],
+                                   np.hypot(*gradiente), delta=1e-10)
+            if k:
+                anterior = historial[k-1]
+                gradiente_anterior = gradiente_numerico(
+                    costo_objetivo, anterior["x"], anterior["y"], 0.001,
+                )
+                np.testing.assert_allclose(
+                    [registro["x"], registro["y"]],
+                    np.array([anterior["x"], anterior["y"]])
+                    - alpha*gradiente_anterior, atol=1e-12, rtol=0,
+                )
+                self.assertNotEqual((registro["x"], registro["y"]),
+                                    (anterior["x"], anterior["y"]))
+        self.assertEqual(set(historial[-1]) - set(historial[-2]),
+                         {"motivo_terminacion", "convergio"})
+
+    def test_convergencia_dos_tasas_y_referencias(self):
+        finales = []
+        for alpha in (0.2, 0.5):
+            with self.subTest(alpha=alpha):
+                historial = descenso_gradiente(costo_objetivo, (80, 70), alpha,
+                                               0.001, 1000, 1e-6)
+                final = historial[-1]
+                self.assertEqual(final["motivo_terminacion"], "convergencia")
+                self.assertTrue(final["convergio"])
+                self.assertLessEqual(final["norma_gradiente"], 1e-6)
+                np.testing.assert_allclose(
+                    [final["x"], final["y"]], [640/39, 700/39],
+                    atol=2e-6, rtol=0,
+                )
+                self.assertAlmostEqual(final["costo"], 21400/39,
+                                       delta=1e-8)
+                finales.append(final)
+        self.assertNotEqual(finales[0]["iteracion"], finales[1]["iteracion"])
+        np.testing.assert_allclose(
+            [finales[0]["x"], finales[0]["y"]],
+            [finales[1]["x"], finales[1]["y"]], atol=2e-7, rtol=0,
+        )
+
+    def test_punto_inicial_ya_convergido(self):
+        minimo = (640/39, 700/39)
+        historial = descenso_gradiente(costo_objetivo, minimo, 0.2,
+                                       0.001, 100, 1e-6)
+        self.assertEqual(len(historial), 1)
+        self.assertEqual(historial[0]["iteracion"], 0)
+        self.assertEqual(historial[0]["motivo_terminacion"], "convergencia")
+        self.assertTrue(historial[0]["convergio"])
+
+    def test_salida_dominio_no_evalua_punto_propuesto(self):
+        puntos = []
+
+        def funcion(x, y):
+            puntos.append((x, y))
+            return costo_objetivo(x, y)
+
+        historial = descenso_gradiente(funcion, (80, 70), 1.0,
+                                       0.001, 100, 1e-6)
+        self.assertEqual(len(historial), 1)
+        self.assertEqual(historial[0]["motivo_terminacion"], "fuera_dominio")
+        self.assertFalse(historial[0]["convergio"])
+        self.assertTrue(all(0 <= x <= 100 and 0 <= y <= 100 for x, y in puntos))
+        self.assertTrue(all(0 <= r["x"] <= 100 and 0 <= r["y"] <= 100
+                            for r in historial))
+
+    def test_divergencia_por_crecimiento_persistente(self):
+        funcion = lambda x, y: (x-50)**2
+        historial = descenso_gradiente(funcion, (51, 50), 1.5,
+                                       0.001, 100, 1e-6)
+        self.assertEqual(historial[-1]["motivo_terminacion"], "divergencia")
+        self.assertFalse(historial[-1]["convergio"])
+        self.assertEqual(historial[-1]["iteracion"], 3)
+        self.assertTrue(all(0 <= r["x"] <= 100 for r in historial))
+        self.assertTrue(all(historial[k]["costo"] > historial[k-1]["costo"]
+                            for k in range(1, len(historial))))
+
+    def test_errores_numericos_explicitos(self):
+        with self.assertRaises(ValueError):
+            descenso_gradiente(lambda x, y: float("nan"), (80, 70),
+                               0.2, 0.001, 100, 1e-6)
+        with self.assertRaises(ValueError):
+            descenso_gradiente(lambda x, y: float("inf") if x < 70 else x*x+y,
+                               (80, 70), 0.2, 0.001, 100, 1e-6)
+        with self.assertRaises(ArithmeticError):
+            descenso_gradiente(costo_objetivo, (80, 70), 1e308,
+                               0.001, 100, 1e-6)
+
+    def test_gradiente_numerico_se_usa_para_el_paso(self):
+        funcion = lambda x, y: x**3 + y
+        historial = descenso_gradiente(funcion, (2, 20), 0.1,
+                                       0.1, 1, 1e-6)
+        self.assertAlmostEqual(historial[1]["x"], 2 - 0.1*12.01,
+                               delta=1e-10)
+        self.assertAlmostEqual(historial[1]["y"], 19.9, delta=1e-10)
+
+    def test_beta_parametrizado_con_referencia_propia(self):
+        funcion = lambda x, y: costo_objetivo(x, y, beta=2)
+        historial = descenso_gradiente(funcion, (80, 70), 0.2,
+                                       0.001, 1000, 1e-6)
+        final = historial[-1]
+        esperado = np.linalg.solve([[1.4, 0.3], [0.3, 2.2]], [20, 32])
+        self.assertEqual(final["motivo_terminacion"], "convergencia")
+        np.testing.assert_allclose([final["x"], final["y"]], esperado,
+                                   atol=2e-6, rtol=0)
+        self.assertAlmostEqual(final["costo"], funcion(*esperado), delta=1e-8)
+
+    def test_reproducibilidad(self):
+        argumentos = (costo_objetivo, (80, 70), 0.5, 0.001, 1000, 1e-6)
+        self.assertEqual(descenso_gradiente(*argumentos),
+                         descenso_gradiente(*argumentos))

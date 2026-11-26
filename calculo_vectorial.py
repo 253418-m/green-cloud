@@ -8,7 +8,7 @@ dispone de puntos válidos, se lanza ValueError; nunca se recorta el punto.
 """
 
 from math import isfinite
-from numbers import Real
+from numbers import Integral, Real
 
 import numpy as np
 
@@ -178,3 +178,83 @@ def direccion_tangente(gradiente) -> np.ndarray:
     """Dirección unitaria perpendicular a un gradiente no nulo."""
     g = _vector_bidimensional(gradiente, "gradiente")
     return normalizar_vector((-g[1], g[0]))
+
+
+def descenso_gradiente(
+    funcion, inicio, alpha, h, max_iter, tolerancia
+) -> list[dict]:
+    """Desciende con el gradiente numérico y devuelve puntos válidos.
+
+    El historial inicia en iteración 0. Cada registro contiene iteracion,
+    x, y, costo y norma_gradiente. El último añade motivo_terminacion y
+    convergio. Los motivos son convergencia, max_iteraciones,
+    fuera_dominio y divergencia. Una salida de [0,100]² no se evalúa ni
+    registra. Se clasifica divergencia tras tres aumentos consecutivos
+    del costo mayores que 1e-12 veces su escala, para ignorar redondeo.
+    Resultados no finitos o pasos sin resolución provocan una excepción.
+    """
+    if not callable(funcion):
+        raise TypeError("funcion debe ser invocable")
+    punto = _vector_bidimensional(inicio, "inicio")
+    x, y = _coordenadas(*punto)
+    alpha = _real_finito(alpha, "alpha")
+    h = _real_finito(h, "h")
+    tolerancia = _real_finito(tolerancia, "tolerancia")
+    if alpha <= 0 or h <= 0 or tolerancia <= 0:
+        raise ValueError("alpha, h y tolerancia deben ser positivos")
+    if isinstance(max_iter, (bool, np.bool_)) or not isinstance(
+        max_iter, (Integral, np.integer)
+    ) or max_iter <= 0:
+        raise ValueError("max_iter debe ser un entero positivo")
+
+    def evaluar(actual: np.ndarray, iteracion: int) -> tuple[dict, np.ndarray]:
+        costo = _resultado(funcion(float(actual[0]), float(actual[1])))
+        gradiente = gradiente_numerico(funcion, float(actual[0]), float(actual[1]), h)
+        norma = _norma(gradiente)
+        return {
+            "iteracion": iteracion,
+            "x": float(actual[0]),
+            "y": float(actual[1]),
+            "costo": costo,
+            "norma_gradiente": norma,
+        }, gradiente
+
+    punto = np.array([x, y], dtype=float)
+    registro, gradiente = evaluar(punto, 0)
+    historial = [registro]
+    aumentos_consecutivos = 0
+
+    for iteracion in range(1, max_iter + 1):
+        if registro["norma_gradiente"] <= tolerancia:
+            motivo = "convergencia"
+            break
+        with np.errstate(over="ignore", invalid="ignore"):
+            nuevo = punto - alpha * gradiente
+        if not np.all(np.isfinite(nuevo)):
+            raise ArithmeticError("el paso produjo coordenadas no finitas")
+        if not np.all((0 <= nuevo) & (nuevo <= 100)):
+            motivo = "fuera_dominio"
+            break
+        if np.array_equal(nuevo, punto):
+            raise ArithmeticError("el paso no cambia el punto con esta precisión")
+
+        nuevo_registro, nuevo_gradiente = evaluar(nuevo, iteracion)
+        margen = 1e-12 * max(1.0, abs(registro["costo"]))
+        if nuevo_registro["costo"] > registro["costo"] + margen:
+            aumentos_consecutivos += 1
+        else:
+            aumentos_consecutivos = 0
+        historial.append(nuevo_registro)
+        punto, registro, gradiente = nuevo, nuevo_registro, nuevo_gradiente
+        if registro["norma_gradiente"] <= tolerancia:
+            motivo = "convergencia"
+            break
+        if aumentos_consecutivos >= 3:
+            motivo = "divergencia"
+            break
+    else:
+        motivo = "max_iteraciones"
+
+    historial[-1]["motivo_terminacion"] = motivo
+    historial[-1]["convergio"] = motivo == "convergencia"
+    return historial
