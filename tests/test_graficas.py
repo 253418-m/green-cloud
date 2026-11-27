@@ -124,6 +124,18 @@ class TestGraficas(unittest.TestCase):
             for figura in figuras.values():
                 plt.close(figura)
 
+    def test_figuras_usan_dimensiones_compactas_para_pantalla(self) -> None:
+        figuras = generar_todas_las_figuras(
+            costo_objetivo, self.historial_1, self.historial_2, self.p0, self.vector_v
+        )
+        try:
+            for figura in figuras.values():
+                self.assertEqual(tuple(figura.get_size_inches()), (6.0, 3.6))
+                self.assertEqual(figura.dpi, 85)
+        finally:
+            for figura in figuras.values():
+                plt.close(figura)
+
     def test_exportar_figura_crea_directorios_y_png_a_300_dpi(self) -> None:
         figura = graficar_convergencia(self.historial_1, self.historial_2)
         try:

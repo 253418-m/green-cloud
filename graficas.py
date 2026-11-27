@@ -98,6 +98,8 @@ def graficar_superficie(
     historial: Sequence[Registro],
     p0: Sequence[float] | None = None,
     titulo: str = "Superficie 3D de Costo y Trayectoria",
+    figsize: tuple[float, float] = (6.0, 3.6),
+    dpi: int = 85,
 ) -> Figure:
     """Dibuja la superficie de costo y la trayectoria registrada."""
     if not callable(funcion_costo):
@@ -111,7 +113,7 @@ def graficar_superficie(
         if not np.isfinite(costo_inicial):
             raise ValueError("La función de costo produjo un valor NaN o infinito en p0")
 
-    figura = plt.figure(figsize=(10, 7))
+    figura = plt.figure(figsize=figsize, dpi=dpi)
     eje = figura.add_subplot(111, projection="3d")
     superficie = eje.plot_surface(
         malla_x, malla_y, costos, cmap="viridis", alpha=0.78,
@@ -142,6 +144,8 @@ def graficar_curvas_nivel(
     p0: Sequence[float] | None = None,
     vector_v: Sequence[float] | None = None,
     titulo: str = "Curvas de Nivel y Campo Gradiente",
+    figsize: tuple[float, float] = (6.0, 3.6),
+    dpi: int = 85,
 ) -> Figure:
     """Dibuja curvas de nivel, gradiente, trayectoria y direcciones locales."""
     if not callable(funcion_costo):
@@ -191,7 +195,7 @@ def graficar_curvas_nivel(
         if punto_inicial is None:
             raise ValueError("Se necesita p0 o un historial no vacío para dibujar vector_v")
 
-    figura, eje = plt.subplots(figsize=(9, 7))
+    figura, eje = plt.subplots(figsize=figsize, dpi=dpi)
     relleno = eje.contourf(malla_x, malla_y, costos, levels=20, cmap="viridis")
     eje.contour(malla_x, malla_y, costos, levels=10, colors="white",
                 linewidths=0.65, alpha=0.75)
@@ -250,11 +254,13 @@ def graficar_convergencia(
     label_alpha1: str = "alpha=0.2",
     label_alpha2: str = "alpha=0.5",
     titulo: str = "Comparación de Convergencia",
+    figsize: tuple[float, float] = (6.0, 3.6),
+    dpi: int = 85,
 ) -> Figure:
     """Compara el costo por iteración y marca el estado de terminación."""
     iteraciones_1, costos_1, final_1 = _datos_convergencia(historial_alpha1)
     iteraciones_2, costos_2, final_2 = _datos_convergencia(historial_alpha2)
-    figura, eje = plt.subplots(figsize=(9, 6))
+    figura, eje = plt.subplots(figsize=figsize, dpi=dpi)
     eje.plot(iteraciones_1, costos_1, marker="o", markersize=3,
              linewidth=1.8, label=label_alpha1)
     eje.plot(iteraciones_2, costos_2, marker="s", markersize=3,
@@ -283,12 +289,24 @@ def generar_todas_las_figuras(
     historial_a2: Sequence[Registro],
     p0: Sequence[float],
     vector_v: Sequence[float],
+    *,
+    label_alpha1: str = "alpha=0.2",
+    label_alpha2: str = "alpha=0.5",
+    figsize: tuple[float, float] = (6.0, 3.6),
+    dpi: int = 85,
 ) -> dict[str, Figure]:
     """Genera las tres figuras con las claves requeridas por la interfaz."""
     return {
-        "superficie": graficar_superficie(funcion_costo, historial_a1, p0),
-        "curvas": graficar_curvas_nivel(funcion_costo, historial_a1, p0, vector_v),
-        "convergencia": graficar_convergencia(historial_a1, historial_a2),
+        "superficie": graficar_superficie(
+            funcion_costo, historial_a1, p0, figsize=figsize, dpi=dpi
+        ),
+        "curvas": graficar_curvas_nivel(
+            funcion_costo, historial_a1, p0, vector_v, figsize=figsize, dpi=dpi
+        ),
+        "convergencia": graficar_convergencia(
+            historial_a1, historial_a2, label_alpha1, label_alpha2,
+            figsize=figsize, dpi=dpi,
+        ),
     }
 
 
